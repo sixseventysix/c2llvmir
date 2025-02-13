@@ -13,7 +13,7 @@ pub enum Token {
     _string(String),
 
     plus, minus, star, slash, percent, exclamation,
-    assign, // =
+    assign,
     
     eq, neq, lt, lte, gt, gte,
 
@@ -26,33 +26,32 @@ pub enum Token {
 
 pub struct Lexer {
     input: Vec<char>,
-    pos: usize,
+    cursor: usize,
 }
 
 impl Lexer {
     pub fn new(input: &str) -> Self {
         Self {
             input: input.chars().collect(),
-            pos: 0,
+            cursor: 0,
         }
     }
 
     fn peek(&self) -> Option<char> {
-        self.input.get(self.pos).copied()
+        self.input.get(self.cursor).copied()
     }
 
     fn advance(&mut self) -> Option<char> {
-        if self.pos < self.input.len() {
-            self.pos += 1;
-            self.input.get(self.pos - 1).copied()
+        if self.cursor < self.input.len() {
+            self.cursor += 1;
+            self.input.get(self.cursor - 1).copied()
         } else {
             None
         }
     }
 
-    /// Parses a number (integer or float)
     fn lex_number(&mut self) -> Token {
-        let start = self.pos;
+        let start = self.cursor;
         let mut has_dot = false;
 
         while let Some(c) = self.peek() {
@@ -60,7 +59,7 @@ impl Lexer {
                 self.advance();
             } else if c == '.' {
                 if has_dot {
-                    break; // Second dot encountered -> end of number
+                    break;
                 }
                 has_dot = true;
                 self.advance();
@@ -69,7 +68,7 @@ impl Lexer {
             }
         }
 
-        let num: String = self.input[start..self.pos].iter().collect();
+        let num: String = self.input[start..self.cursor].iter().collect();
         if has_dot {
             Token::_float(num.parse().unwrap())
         } else {
@@ -77,9 +76,8 @@ impl Lexer {
         }
     }
 
-    /// Parses an identifier or keyword
     fn lex_ident_or_keyword(&mut self) -> Token {
-        let start = self.pos;
+        let start = self.cursor;
         while let Some(c) = self.peek() {
             if c.is_alphanumeric() || c == '_' {
                 self.advance();
@@ -88,7 +86,7 @@ impl Lexer {
             }
         }
 
-        let ident: String = self.input[start..self.pos].iter().collect();
+        let ident: String = self.input[start..self.cursor].iter().collect();
         let keywords = ["int", "float", "return", "if", "else", "for", "while", "void"];
         if keywords.contains(&ident.as_str()) {
             Token::keyword(ident)
@@ -97,10 +95,9 @@ impl Lexer {
         }
     }
 
-    /// Parses string literals `"..."` and character literals `'a'`
     fn lex_string_or_char(&mut self) -> Token {
-        let quote = self.advance().unwrap(); // Consume starting quote (' or ")
-        let start = self.pos;
+        let quote = self.advance().unwrap();
+        let start = self.cursor;
         let mut escaped = false;
 
         while let Some(c) = self.peek() {
@@ -117,8 +114,8 @@ impl Lexer {
             }
         }
 
-        let literal: String = self.input[start..self.pos].iter().collect();
-        self.advance(); // Consume closing quote
+        let literal: String = self.input[start..self.cursor].iter().collect();
+        self.advance();
 
         if quote == '\'' {
             if literal.len() == 1 {
@@ -131,7 +128,6 @@ impl Lexer {
         }
     }
 
-    /// Parses operators and punctuations
     fn lex_operator(&mut self) -> Option<Token> {
         match self.advance()? {
             '+' => Some(if self.peek() == Some('+') {
@@ -223,8 +219,6 @@ impl Lexer {
         Token::eof
     }
     
-
-    /// Tokenizes the entire input
     pub fn tokenize(&mut self) -> Vec<Token> {
         let mut tokens = Vec::new();
         loop {
