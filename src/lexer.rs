@@ -7,10 +7,9 @@ pub enum Token {
     keyword(String),
     unknown(String),
 
-    _int(u64),
+    _int(i64),
     _float(f64),
     _char(u8),
-    _string(String),
 
     plus, minus, star, slash, percent, exclamation,
     assign,
@@ -49,7 +48,7 @@ impl Lexer {
             None
         }
     }
-
+    
     fn lex_number(&mut self) -> Token {
         let start = self.cursor;
         let mut has_dot = false;
@@ -75,6 +74,7 @@ impl Lexer {
             Token::_int(num.parse().unwrap())
         }
     }
+    
 
     fn lex_ident_or_keyword(&mut self) -> Token {
         let start = self.cursor;
@@ -87,7 +87,7 @@ impl Lexer {
         }
 
         let ident: String = self.input[start..self.cursor].iter().collect();
-        let keywords = ["int", "float", "return", "if", "else", "for", "while", "void"];
+        let keywords = ["int", "float", "char", "return", "if", "else", "for", "while", "void"];
         if keywords.contains(&ident.as_str()) {
             Token::keyword(ident)
         } else {
@@ -124,7 +124,7 @@ impl Lexer {
                 Token::unknown(format!("Invalid char literal: '{}'", literal))
             }
         } else {
-            Token::_string(literal)
+            Token::unknown(literal)
         }
     }
 

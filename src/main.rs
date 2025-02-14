@@ -1,13 +1,15 @@
-use c2llvmir::lexer::Lexer;
-use c2llvmir::parser::Parsec;
+use c2llvmir::{
+    lexer::Lexer,
+    parser::Parsec
+};
 
 fn main() {
     let code = r#"
         int main() {
             int x = 42 + 3.14;
             char c = 'a';
-            string s = "hello";
             if (x > 10 && x < 100) { x++; }
+            else { x--; }
             return x;
         }
     "#;
@@ -18,5 +20,9 @@ fn main() {
     for token in &tokens {
         println!("{:?}", token);
     }
+
+    let mut p = Parsec::new(tokens);
+    let program = p.parse_program();
+    println!("{:?}", program);
 }
 
