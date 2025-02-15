@@ -6,7 +6,7 @@ use c2llvmir::{
 fn main() {
     let code = r#"
         int main() {
-            int x = 42 + 3.14;
+            float x = 42.0 + 3.14;
             char c = 'a';
             if (x > 10 && x < 100) { x++; }
             else { x--; }
@@ -22,7 +22,9 @@ fn main() {
     }
 
     let mut p = Parsec::new(tokens);
-    let program = p.parse_program();
+    let program = p.parse_program().expect("chud gaye guru");
     println!("{:?}", program);
+
+    println!("{}", program.to_llvm_ir());
 }
 

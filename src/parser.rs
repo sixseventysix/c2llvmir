@@ -1,15 +1,43 @@
 #![allow(non_camel_case_types)]
 use crate::lexer::Token;
 
+fn get_llvm_type(type_str: &str) -> &str {
+    match type_str {
+        "int" => "i32",
+        "float" => "float",
+        "char" => "i8",
+        _ => "void",
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum ProgramItems {
     Function(Function),
     GlobalVar(Stmt)
 }
 
+impl ProgramItems {
+    pub fn to_llvm_ir(&self) -> String {
+        match self {
+            ProgramItems::Function(func) => func.to_llvm_ir(),
+            ProgramItems::GlobalVar(var) => var.to_llvm_ir(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Program {
     pub items: Vec<ProgramItems>
+}
+
+impl Program {
+    pub fn to_llvm_ir(&self) -> String {
+        let mut ir = String::new();
+        for item in &self.items {
+            ir.push_str(&item.to_llvm_ir());
+        }
+        ir
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -20,15 +48,60 @@ pub struct Function {
     pub body: Vec<Stmt>,
 }
 
+impl Function {
+    pub fn to_llvm_ir(&self) -> String {
+        let llvm_ret_ty = get_llvm_type(&self.return_type);
+
+        let mut ir = format!("define {} @{} () {{\nentry:\n", llvm_ret_ty, self.name);
+
+        for stmt in &self.body {
+            ir.push_str(&stmt.to_llvm_ir());
+        }
+
+        ir.push_str("}\n");
+        ir
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum Stmt {
-    VarDecl(String, Option<Expr>),
+    VarDecl(String, String, Option<Expr>),
     Expression(Expr),
     Return(Option<Expr>),
     If(Expr, Box<Stmt>, Option<Box<Stmt>>),
     While(Expr, Box<Stmt>),
     For(Box<Stmt>, Expr, Box<Stmt>, Box<Stmt>),
     Block(Vec<Stmt>),
+}
+
+impl Stmt {
+    pub fn to_llvm_ir(&self) -> String {
+        match self {
+            Stmt::VarDecl(var_ty, name, Some(expr)) => format!(
+                "%{} = alloca {}\nstore {} {} {}* %{}\n",
+                name, get_llvm_type(var_ty), get_llvm_type(var_ty), expr.to_llvm_ir(), get_llvm_type(var_ty), name
+            ),
+            Stmt::VarDecl(var_ty, name, None) => format!(
+                "%{} = alloca {}\n",
+                name, get_llvm_type(var_ty)
+            ),
+
+            Stmt::Expression(expr) => expr.to_llvm_ir(),
+            Stmt::Return(Some(expr)) => format!(
+                "ret {}\n",
+                expr.to_llvm_ir()
+            ),
+            Stmt::Return(None) => "ret void\n".to_string(),
+            Stmt::Block(statements) => {
+                let mut ir = String::new();
+                for stmt in statements {
+                    ir.push_str(&stmt.to_llvm_ir());
+                }
+                ir
+            }
+            misc => format!("{:?} is not supported right now\n",misc),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -39,6 +112,81 @@ pub enum Expr {
     ident(String),
     binop(Box<Expr>, Token, Box<Expr>),
     unop(Token, Box<Expr>),
+}
+
+impl Expr {
+    pub fn to_llvm_ir(&self) -> String {
+        match self {
+            Expr::_int(value) => format!("i32 {}", value),
+
+            // Floating-Point Literal
+            Expr::_float(value) => format!("double {}", value),
+
+            // Character Literal (stored as i8)
+            Expr::_char(value) => format!("i8 {}", value),
+
+            // Identifier (load variable from memory)
+            Expr::ident(name) => format!("load {}, {}* %{}", get_llvm_type(name), get_llvm_type(name), name),
+
+            // Unary Operators (negation, logical NOT)
+            Expr::unop(op, expr) => {
+                let expr_ir = expr.to_llvm_ir();
+                let result_var = generate_temp_var();
+
+                match op {
+                    Token::minus => format!("{} = sub {} 0, {}\n", result_var, get_expr_type(expr), expr_ir),
+                    Token::exclamation => format!("{} = xor {} {}, -1\n", result_var, get_expr_type(expr), expr_ir),
+                    _ => panic!("Unsupported unary operator"),
+                }
+            }
+
+            Expr::binop(left, op, right) => {
+                let left_ir = left.to_llvm_ir();
+                let right_ir = right.to_llvm_ir();
+                let result_var = generate_temp_var();
+                let result_type = get_expr_type(left);
+
+                let operation = match op {
+                    Token::plus => "add",
+                    Token::minus => "sub",
+                    Token::star => "mul",
+                    Token::slash => "sdiv", // signed division
+                    Token::percent => "srem", // modulus
+
+                    Token::eq => "icmp eq",
+                    Token::neq => "icmp ne",
+                    Token::lt => "icmp slt",
+                    Token::lte => "icmp sle",
+                    Token::gt => "icmp sgt",
+                    Token::gte => "icmp sge",
+
+                    Token::logical_and => "and",
+                    Token::logical_or => "or",
+
+                    _ => panic!("Unsupported binary operator"),
+                };
+
+                format!("{} = {} {} {}, {}\n", result_var, operation, result_type, left_ir, right_ir)
+            }
+        }
+    }
+}
+
+fn get_expr_type(expr: &Expr) -> &str {
+    match expr {
+        Expr::_int(_) => "i32",
+        Expr::_float(_) => "float",
+        Expr::_char(_) => "i8",
+        _ => "i32",
+    }
+}
+
+fn generate_temp_var() -> String {
+    static mut COUNTER: i32 = 0;
+    unsafe {
+        COUNTER += 1;
+        format!("%{}", COUNTER)
+    }
 }
 
 pub struct Parsec {
@@ -160,13 +308,18 @@ impl Parsec {
     }
 
     fn parse_variable_declaration(&mut self) -> Result<Stmt, String> {
-        let var_type = self.advance();
+        let var_type = match self.advance() {
+            Some(Token::keyword(kw)) => kw,
+            _ => return Err("Expected variable type".to_string()),
+        };
+
         let name = match self.advance() {
             Some(Token::ident(name)) => name,
             _ => return Err("Expected variable name".to_string()),
         };
 
         println!("vr_type: {:?}, name: {:?}", var_type, name);
+
 
         let init = if self.peek() == Some(&Token::assign) {
             self.advance();
@@ -177,7 +330,7 @@ impl Parsec {
 
         self.expect(Token::semicolon)?;
         println!("declared var");
-        Ok(Stmt::VarDecl(name, init))
+        Ok(Stmt::VarDecl(var_type, name, init))
     }
 
     fn parse_block(&mut self) -> Result<Stmt, String> {
