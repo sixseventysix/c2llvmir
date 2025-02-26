@@ -4,23 +4,38 @@
 pub enum Token {
     eof,
     ident(String),
-    keyword(String),
     unknown(String),
 
+    // keywords
+    int_t, float_t, char_t, _return, _void
+    
     _int(i64),
     _float(f64),
-    _char(u8),
+    _char(char),
 
-    plus, minus, star, slash, percent, exclamation,
-    assign,
+    // binop
+    plus, minus, star, slash, percent,
+    assign, logical_and, logical_or,
     
+    // icmp (integer comparison)
     eq, neq, lt, lte, gt, gte,
 
-    logical_and, logical_or,
-    shiftl, shiftr, incr, decr,
+    // unop
+    exclamation, shiftl, shiftr, incr, decr,
 
     comma, semicolon,
     lparen, rparen, lbrace, rbrace,
+}
+
+impl Token {
+    pub fn is_op(&self) -> bool {
+        match self {
+            Token::exclamation| Token::shiftl| Token::shiftr| Token::incr| Token::decr|
+            Token::plus| Token::minus| Token::star| Token::slash| Token::percent|
+            Token::assign| Token::logical_and| Token::logical_or| => true,
+            _ => false
+        }
+    }
 }
 
 pub struct Lexer {
@@ -69,9 +84,9 @@ impl Lexer {
 
         let num: String = self.input[start..self.cursor].iter().collect();
         if has_dot {
-            Token::_float(num.parse().unwrap())
+            Token::_float(num.parse::<f32>().unwrap())
         } else {
-            Token::_int(num.parse().unwrap())
+            Token::_int(num.parse::<i32>().unwrap())
         }
     }
     
@@ -87,11 +102,13 @@ impl Lexer {
         }
 
         let ident: String = self.input[start..self.cursor].iter().collect();
-        let keywords = ["int", "float", "char", "return", "if", "else", "for", "while", "void"];
-        if keywords.contains(&ident.as_str()) {
-            Token::keyword(ident)
-        } else {
-            Token::ident(ident)
+        match ident.as_str() {
+            "int" => Token::int_t,
+            "float" => Token::float_t,
+            "char" => Token::char_t,
+            "return" => Token::_return,
+            "void" => Token::_void,
+            _ => Token::ident(ident)
         }
     }
 
@@ -119,7 +136,7 @@ impl Lexer {
 
         if quote == '\'' {
             if literal.len() == 1 {
-                Token::_char(literal.chars().next().unwrap() as u8)
+                Token::_char(literal.chars().next().unwrap())
             } else {
                 Token::unknown(format!("Invalid char literal: '{}'", literal))
             }

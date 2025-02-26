@@ -6,11 +6,8 @@ use c2llvmir::{
 fn main() {
     let code = r#"
         int main() {
-            float x = 42.0 + 3.14;
-            char c = 'a';
-            if (x > 10 && x < 100) { x++; }
-            else { x--; }
-            return x;
+            int x = 42 + 3;
+            return 0;
         }
     "#;
     
@@ -22,9 +19,9 @@ fn main() {
     }
 
     let mut p = Parsec::new(tokens);
-    let program = p.parse_program().expect("chud gaye guru");
+    let program = p.parse_program();
     println!("{:?}", program);
 
-    println!("{}", program.to_llvm_ir());
+    // println!("{}", program.to_llvm_ir());
 }
 
