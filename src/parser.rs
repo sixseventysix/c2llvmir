@@ -73,7 +73,7 @@ enum ParsecErrT {
 }
 
 #[derive(Debug, Clone)]
-struct ParsecErr {
+pub struct ParsecErr {
     ty: ParsecErrT,
     erroneous_token: Token
 }
@@ -104,9 +104,20 @@ impl Parsec {
         t
     }
 
-    #[inline]
-    fn expect(&self, expected: Token) -> bool {
-        self.peek() == Some(&expected)
+    fn expect(&mut self, expected: Token) -> Result<Token, ParsecErr> {
+        match self.peek() {
+            Some(token) if *token == expected => {
+                Ok(self.next())
+            },
+            Some(token) => Err(ParsecErr {
+                ty: ParsecErrT::Unexpected,
+                erroneous_token: token.clone(),
+            }),
+            None => Err(ParsecErr {
+                ty: ParsecErrT::EOF_e,
+                erroneous_token: Token::eof,
+            }),
+        }
     }
 
     fn is_part_of_expr(&self) -> bool {
@@ -128,13 +139,12 @@ impl Parsec {
     }
 
     fn parse_function(&mut self) -> Result<Function, ParsecErr> {
+        println!("parsing function: {:?}", self.peek());
         let ret_type = self.parse_primitive()?;
         let name = self.parse_identifier()?;
-        self.expect(Token::lparen);
+        self.expect(Token::lparen)?;
         let params = self.parse_parameters()?;
-        if !self.expect(Token::lbrace) {
-            return Err(ParsecErr { ty: ParsecErrT::Unexpected, erroneous_token: self.peek().unwrap().clone() });
-        }
+        self.expect(Token::lbrace)?;
         let body_block = self.parse_block()?;
         
         Ok(Function {
@@ -167,6 +177,7 @@ impl Parsec {
     }
 
     fn parse_parameters(&mut self) -> Result<Vec<(PrimitiveType, String)>, ParsecErr> {
+        println!("parsing parameters: {:?}", self.peek());
         let mut params = Vec::new();
         
         loop {
@@ -185,6 +196,7 @@ impl Parsec {
     }
 
     fn parse_block(&mut self) -> Result<Vec<Statement>, ParsecErr> {
+        println!("parsing block: {:?}", self.peek());
         let mut statements = Vec::new();
         loop {
             if matches!(self.next(), Token::rbrace) {
@@ -192,13 +204,54 @@ impl Parsec {
             }
             statements.push(self.parse_statement()?);
         }
-        statements
+        Ok(statements)
     }
 
-    fn parse_statement(&mut self) -> Result<(), ParsecErr> {
-        Ok(())
+    fn parse_statement(&mut self) -> Result<Statement, ParsecErr> {
+        println!("parsing statement: {:?}", self.peek());
+        let token = self.peek().cloned().ok_or(ParsecErr {
+            ty: ParsecErrT::EOF_e,
+            erroneous_token: Token::eof,
+        })?;
+    
+        match token {
+            Token::int_t | Token::float_t | Token::char_t => {
+                let prim_type = self.parse_primitive()?;
+                let name = self.parse_identifier()?;
+                self.expect(Token::assign)?;
+                let expr = self.parse_expression()?;
+                Ok(Statement::VarDecl(prim_type, name, expr))
+            }
+            Token::_return => {
+                self.next();
+                let expr = self.parse_expression()?;
+                self.expect(Token::semicolon)?;
+                Ok(Statement::Return(expr))
+            }
+            Token::ident(_) => {
+                let name = self.parse_identifier()?;
+                self.expect(Token::assign)?;
+                let expr = self.parse_expression()?;
+                Ok(Statement::Assignment(name, expr))
+            }
+            _ => Err(ParsecErr { 
+                ty: ParsecErrT::Unexpected, 
+                erroneous_token: token 
+            }),
+        }
     }
 
+    fn parse_expression(&mut self) -> Result<Expression, ParsecErr> {
+        let mut expr_tokens: Vec<Token> = Vec::new();
+        while self.is_part_of_expr() {
+            let token = self.next();
+            expr_tokens.push(token);
+        }
+        let postfix_items = infix_to_postfix(&expr_tokens);
+        let sub_exprs = postfix_to_subexprs(&postfix_items);
+        
+        Ok(Expression { sub_exprs })
+    }
 }
 
 fn token_to_operator(token: &Token) -> Operator {
