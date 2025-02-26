@@ -24,9 +24,9 @@ struct Function {
 
 #[derive(Debug, Clone)]
 enum Statement {
-    VarDecl(PrimitiveType, String, Expression),  // (type, name)
+    VarDecl(PrimitiveType, String, Expression),  // (type, name, expr)
     Assignment(String, Expression),
-    Return(Expression)
+    Return(Expression),
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -46,7 +46,7 @@ enum ExpressionAtomic {
 }
 
 #[derive(Debug, Clone)]
-enum SubExpressions {
+enum SubExpression {
     Binop(ExpressionAtomic, Operator, ExpressionAtomic),
     Unop(Operator, ExpressionAtomic),
     Atomic(ExpressionAtomic)
@@ -54,7 +54,7 @@ enum SubExpressions {
 
 #[derive(Debug, Clone)]
 struct Expression {
-    sub_exprs: Vec<SubExpressions>
+    sub_exprs: Vec<SubExpression>
 }
 
 #[derive(Debug, Clone)]
@@ -331,9 +331,9 @@ fn infix_to_postfix(tokens: &[Token]) -> Vec<PostfixItem> {
     output
 }
 
-fn postfix_to_subexprs(items: &[PostfixItem]) -> Vec<SubExpressions> {
+fn postfix_to_subexprs(items: &[PostfixItem]) -> Vec<SubExpression> {
     let mut stack: Vec<ExpressionAtomic> = Vec::new();
-    let mut sub_exprs: Vec<SubExpressions> = Vec::new();
+    let mut sub_exprs: Vec<SubExpression> = Vec::new();
     let mut temp_counter = 0;
 
     let mut new_temp = || -> ExpressionAtomic {
@@ -352,12 +352,12 @@ fn postfix_to_subexprs(items: &[PostfixItem]) -> Vec<SubExpressions> {
             PostfixItem::Op(op) => {
                 if is_unary(op) {
                     let operand = stack.pop().expect("Insufficient operand for unary operator");
-                    sub_exprs.push(SubExpressions::Unop(*op, operand));
+                    sub_exprs.push(SubExpression::Unop(*op, operand));
                     stack.push(new_temp());
                 } else {
                     let right = stack.pop().expect("Insufficient operands for binary operator");
                     let left = stack.pop().expect("Insufficient operands for binary operator");
-                    sub_exprs.push(SubExpressions::Binop(left, *op, right));
+                    sub_exprs.push(SubExpression::Binop(left, *op, right));
                     stack.push(new_temp());
                 }
             }
@@ -365,7 +365,7 @@ fn postfix_to_subexprs(items: &[PostfixItem]) -> Vec<SubExpressions> {
     }
 
     if sub_exprs.is_empty() && stack.len() == 1 {
-        sub_exprs.push(SubExpressions::Atomic(stack.pop().unwrap()));
+        sub_exprs.push(SubExpression::Atomic(stack.pop().unwrap()));
     }
     sub_exprs
 }
