@@ -1,7 +1,7 @@
 #![allow(non_camel_case_types)]
 use crate::lexer::Token;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 enum PrimitiveType {
     _int,
     _float,
@@ -9,12 +9,12 @@ enum PrimitiveType {
     _void
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct Program {
     pub functions: Vec<Function>
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 struct Function {
     name: String, 
     ret_type: PrimitiveType,
@@ -22,7 +22,7 @@ struct Function {
     body_block: Vec<Statement>
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 enum Statement {
     VarDecl(PrimitiveType, String, Expression),  // (type, name)
     Assignment(String, Expression),
@@ -37,25 +37,7 @@ enum Operator {
     exclamation, shiftl, shiftr, incr, decr,
 }
 
-impl Operator {
-    fn precedence(&self) => {
-        Operator::exclamation | Operator::incr | Operator::decr => 4,
-        Operator::star | Operator::slash | Operator::percent => 3,
-        Operator::plus | Operator::minus => 2,
-        Operator::logical_and => 1,
-        Operator::logical_or => 0,
-        Operator::shiftl | Operator::shiftr => 2,
-    }
-
-    fn is_unary(&self) -> bool {
-        match op {
-            Operator::exclamation | Operator::incr | Operator::decr => true,
-            _ => false,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 enum ExpressionAtomic {
     _int(i32),
     _float(f32),
@@ -63,14 +45,14 @@ enum ExpressionAtomic {
     Var(String)
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 enum SubExpressions {
     Binop(ExpressionAtomic, Operator, ExpressionAtomic),
     Unop(Operator, ExpressionAtomic),
     Atomic(ExpressionAtomic)
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 struct Expression {
     sub_exprs: Vec<SubExpressions>
 }
@@ -81,15 +63,16 @@ enum PostfixItem {
     Op(Operator),
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 enum ParsecErrT {
     NotPrimitive,
     NotIdentifier,
     NotOperator,
-    Unexpected
+    Unexpected,
+    EOF_e
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 struct ParsecErr {
     ty: ParsecErrT,
     erroneous_token: Token
@@ -116,40 +99,50 @@ impl Parsec {
 
     #[inline]
     fn next(&mut self) -> Token {
-        let t = self.tokens.get(self.cursor).unwrap().clone()
+        let t = self.tokens.get(self.cursor).unwrap().clone();
         self.cursor += 1;
         t
     }
 
     #[inline]
     fn expect(&self, expected: Token) -> bool {
-        self.peek() == Some(expected)
+        self.peek() == Some(&expected)
     }
 
-    pub fn parse_program(&mut self) -> Program {
+    fn is_part_of_expr(&self) -> bool {
+        match self.peek().unwrap().clone() {
+            Token::plus| Token::minus| Token::star| Token::slash| Token::percent|
+            Token::assign| Token::logical_and| Token::logical_or| Token::lparen| Token::rparen|
+            Token::exclamation| Token::shiftl| Token::shiftr| Token::incr| Token::decr|
+            Token::_int(_)| Token::_float(_)| Token::_char(_)| Token::ident(_) => true,
+            _ => false
+        }
+    }
+
+    pub fn parse_program(&mut self) -> Result<Program, ParsecErr> {
         let mut functions = Vec::new();
         while self.peek().is_some() {
-            functions.push(self.parse_function());
+            functions.push(self.parse_function()?);
         }
-        Program { functions }
+        Ok(Program { functions })
     }
 
     fn parse_function(&mut self) -> Result<Function, ParsecErr> {
         let ret_type = self.parse_primitive()?;
         let name = self.parse_identifier()?;
-        self.expect(&Token::lparen);
+        self.expect(Token::lparen);
         let params = self.parse_parameters()?;
         if !self.expect(Token::lbrace) {
             return Err(ParsecErr { ty: ParsecErrT::Unexpected, erroneous_token: self.peek().unwrap().clone() });
         }
         let body_block = self.parse_block()?;
         
-        Function {
+        Ok(Function {
             name,
             ret_type,
             params,
             body_block,
-        }
+        })
     }
 
     fn parse_primitive(&mut self) -> Result<PrimitiveType, ParsecErr> {
@@ -162,29 +155,33 @@ impl Parsec {
     }
 
     fn parse_identifier(&mut self) -> Result<String, ParsecErr> {
-        if !self.expect(Token::ident(_)) {
-            return Err(ParsecErr { ty: ParsecErrT::NotAnIdentifier, erroneous_token: self.peek().unwrap().clone() });
+        let t = self.peek().cloned();
+        match t {
+            Some(Token::ident(name)) => {
+                self.next();
+                Ok(name)
+            }
+            Some(other) => Err(ParsecErr { ty: ParsecErrT::NotIdentifier, erroneous_token: other }),
+            None => Err(ParsecErr { ty: ParsecErrT::EOF_e, erroneous_token: Token::eof }),
         }
-        let Token::ident(name) = self.next();
-        name
     }
 
-    fn parse_parameters(&mut self) -> Vec<(PrimitiveType, String)> {
+    fn parse_parameters(&mut self) -> Result<Vec<(PrimitiveType, String)>, ParsecErr> {
         let mut params = Vec::new();
         
         loop {
             if matches!(self.next(), Token::rparen) {
                 break;
             }
-            let param_type = self.parse_primitive();
-            let param_name = self.parse_identifier();
+            let param_type = self.parse_primitive()?;
+            let param_name = self.parse_identifier()?;
             params.push((param_type, param_name));
 
-            if !matches!(self.next(), Token::Comma) || self.peek().is_none() {
+            if !matches!(self.next(), Token::comma) || self.peek().is_none() {
                 break;
             }
         }
-        params
+        Ok(params)
     }
 
     fn parse_block(&mut self) -> Result<Vec<Statement>, ParsecErr> {
@@ -198,16 +195,10 @@ impl Parsec {
         statements
     }
 
-}
-
-fn is_part_of_expr(&self) -> bool {
-    match self.peek().unwrap().clone() {
-        Token::plus| Token::minus| Token::star| Token::slash| Token::percent|
-        Token::assign| Token::logical_and| Token::logical_or| Token::lparen| Token::rparen|
-        Token::exclamation| Token::shiftl| Token::shiftr| Token::incr| Token::decr|
-        Token::_int(_)| Token::_float(_)| Token::_char(_)| Token::ident(_) => true,
-        _ => false
+    fn parse_statement(&mut self) -> Result<(), ParsecErr> {
+        Ok(())
     }
+
 }
 
 fn token_to_operator(token: &Token) -> Operator {
@@ -292,14 +283,12 @@ fn postfix_to_subexprs(items: &[PostfixItem]) -> Vec<SubExpressions> {
     let mut sub_exprs: Vec<SubExpressions> = Vec::new();
     let mut temp_counter = 0;
 
-    // Helper: generates a new temporary variable.
     let mut new_temp = || -> ExpressionAtomic {
         let name = format!("t{}", temp_counter);
         temp_counter += 1;
         ExpressionAtomic::Var(name)
     };
 
-    // Helper: determines if an operator is unary.
     fn is_unary(op: &Operator) -> bool {
         matches!(op, Operator::exclamation | Operator::incr | Operator::decr)
     }
@@ -322,7 +311,6 @@ fn postfix_to_subexprs(items: &[PostfixItem]) -> Vec<SubExpressions> {
         }
     }
 
-    // If the expression was just a single atomic, output it.
     if sub_exprs.is_empty() && stack.len() == 1 {
         sub_exprs.push(SubExpressions::Atomic(stack.pop().unwrap()));
     }

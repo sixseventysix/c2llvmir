@@ -7,10 +7,10 @@ pub enum Token {
     unknown(String),
 
     // keywords
-    int_t, float_t, char_t, _return, _void
+    int_t, float_t, char_t, _return, _void,
     
-    _int(i64),
-    _float(f64),
+    _int(i32),
+    _float(f32),
     _char(char),
 
     // binop
@@ -32,7 +32,7 @@ impl Token {
         match self {
             Token::exclamation| Token::shiftl| Token::shiftr| Token::incr| Token::decr|
             Token::plus| Token::minus| Token::star| Token::slash| Token::percent|
-            Token::assign| Token::logical_and| Token::logical_or| => true,
+            Token::assign| Token::logical_and| Token::logical_or => true,
             _ => false
         }
     }
