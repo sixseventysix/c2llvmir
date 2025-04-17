@@ -25,6 +25,10 @@ pub enum SubExpr {
     Char(char),
     Variable(String),
     Op(BinOp),
+    Call {
+        name: String,
+        arg_count: usize,
+    },
 }
 
 #[derive(Debug)]
@@ -116,65 +120,6 @@ impl Parsec {
             _ => panic!("Unknown primitive type"),
         }
     }
-    
-    fn to_subexpr_postfix(tokens: &[Token]) -> Vec<SubExpr> {
-        let mut output = Vec::new();
-        let mut op_stack = Vec::new();
-    
-        fn precedence(op: &Token) -> u8 {
-            match op {
-                Token::Symbol('+') | Token::Symbol('-') => 1,
-                Token::Symbol('*') | Token::Symbol('/') => 2,
-                _ => 0,
-            }
-        }
-    
-        fn token_to_binop(token: &Token) -> BinOp {
-            match token {
-                Token::Symbol('+') => BinOp::Add,
-                Token::Symbol('-') => BinOp::Sub,
-                Token::Symbol('*') => BinOp::Mul,
-                Token::Symbol('/') => BinOp::Div,
-                _ => panic!("Unknown operator"),
-            }
-        }
-    
-        for token in tokens {
-            match token {
-                Token::Number(n) => output.push(SubExpr::Number(n.parse().unwrap())),
-                Token::CharLiteral(c) => output.push(SubExpr::Char(*c)),
-                Token::Identifier(name) => output.push(SubExpr::Variable(name.clone())),
-                Token::Symbol('(') => op_stack.push(token),
-                Token::Symbol(')') => {
-                    while let Some(top) = op_stack.pop() {
-                        if top == &Token::Symbol('(') {
-                            break;
-                        }
-                        output.push(SubExpr::Op(token_to_binop(&top)));
-                    }
-                }
-                Token::Symbol(_op @ ('+' | '-' | '*' | '/')) => {
-                    while let Some(top) = op_stack.last() {
-                        if matches!(top, Token::Symbol('+') | Token::Symbol('-') | Token::Symbol('*') | Token::Symbol('/'))
-                            && precedence(top) >= precedence(token)
-                        {
-                            output.push(SubExpr::Op(token_to_binop(op_stack.pop().unwrap())));
-                        } else {
-                            break;
-                        }
-                    }
-                    op_stack.push(token);
-                }
-                _ => panic!("Invalid token in expression: {:?}", token),
-            }
-        }
-    
-        while let Some(op) = op_stack.pop() {
-            output.push(SubExpr::Op(token_to_binop(&op)));
-        }
-    
-        output
-    }  
 
     fn parse_function(&mut self) -> Function {
         let return_type = match self.next() {
@@ -296,16 +241,170 @@ impl Parsec {
 
     fn parse_expr(&mut self) -> Expr {
         let mut expr_tokens = Vec::new();
+        let mut paren_depth = 0;
     
         while let Some(token) = self.peek() {
             match token {
-                Token::Symbol(';') | Token::Symbol(',') | Token::Symbol(')') => break,
-                _ => expr_tokens.push(self.next().unwrap().clone()),
+                Token::Symbol('(') => {
+                    paren_depth += 1;
+                    expr_tokens.push(self.next().unwrap().clone());
+                }
+                Token::Symbol(')') => {
+                    if paren_depth == 0 {
+                        break;
+                    } else {
+                        paren_depth -= 1;
+                        expr_tokens.push(self.next().unwrap().clone());
+                    }
+                }
+                Token::Symbol(';') => {
+                    break;
+                }
+                _ => {
+                    expr_tokens.push(self.next().unwrap().clone());
+                }
             }
         }
     
         Expr {
-            seq: Self::to_subexpr_postfix(&expr_tokens),
+            seq: to_subexpr_postfix(&expr_tokens),
         }
-    }       
+    }      
+}
+
+fn to_subexpr_postfix(tokens: &[Token]) -> Vec<SubExpr> {
+    let mut output = Vec::new();
+    let mut op_stack = Vec::new();
+
+    fn precedence(op: &Token) -> u8 {
+        match op {
+            Token::Symbol('+') | Token::Symbol('-') => 1,
+            Token::Symbol('*') | Token::Symbol('/') => 2,
+            _ => 0,
+        }
+    }
+
+    fn token_to_binop(token: &Token) -> BinOp {
+        match token {
+            Token::Symbol('+') => BinOp::Add,
+            Token::Symbol('-') => BinOp::Sub,
+            Token::Symbol('*') => BinOp::Mul,
+            Token::Symbol('/') => BinOp::Div,
+            _ => panic!("Unknown operator"),
+        }
+    }
+
+    let mut i = 0;
+    while i < tokens.len() {
+        match &tokens[i] {
+            Token::Number(n) => {
+                output.push(SubExpr::Number(n.parse().unwrap()));
+                i += 1;
+            }
+            Token::CharLiteral(c) => {
+                output.push(SubExpr::Char(*c));
+                i += 1;
+            }
+            Token::Identifier(name) => {
+                // Check for function call
+                if i + 1 < tokens.len() && tokens[i + 1] == Token::Symbol('(') {
+                    // Find matching ')'
+                    let mut j = i + 2;
+                    let mut paren_depth = 1;
+                    while j < tokens.len() {
+                        match &tokens[j] {
+                            Token::Symbol('(') => paren_depth += 1,
+                            Token::Symbol(')') => {
+                                paren_depth -= 1;
+                                if paren_depth == 0 {
+                                    break;
+                                }
+                            }
+                            _ => {}
+                        }
+                        j += 1;
+                    }
+
+                    let args_slice = &tokens[i + 2..j];
+                    let args_split = split_args(args_slice);
+                    for arg_tokens in &args_split {
+                        output.extend(to_subexpr_postfix(&arg_tokens));
+                    }
+
+                    output.push(SubExpr::Call {
+                        name: name.clone(),
+                        arg_count: args_split.len(),
+                    });
+
+                    i = j + 1; // skip past ')'
+                } else {
+                    output.push(SubExpr::Variable(name.clone()));
+                    i += 1;
+                }
+            }
+            Token::Symbol('(') => {
+                op_stack.push(tokens[i].clone());
+                i += 1;
+            }
+            Token::Symbol(')') => {
+                while let Some(top) = op_stack.pop() {
+                    if top == Token::Symbol('(') {
+                        break;
+                    }
+                    output.push(SubExpr::Op(token_to_binop(&top)));
+                }
+                i += 1;
+            }
+            Token::Symbol(op @ ('+' | '-' | '*' | '/')) => {
+                while let Some(top) = op_stack.last() {
+                    if matches!(top, Token::Symbol('+') | Token::Symbol('-') | Token::Symbol('*') | Token::Symbol('/'))
+                        && precedence(top) >= precedence(&tokens[i])
+                    {
+                        output.push(SubExpr::Op(token_to_binop(&op_stack.pop().unwrap())));
+                    } else {
+                        break;
+                    }
+                }
+                op_stack.push(tokens[i].clone());
+                i += 1;
+            }
+            token => panic!("Invalid token in expression: {:?}", token),
+        }
+    }
+
+    while let Some(op) = op_stack.pop() {
+        output.push(SubExpr::Op(token_to_binop(&op)));
+    }
+
+    output
+}
+
+fn split_args(tokens: &[Token]) -> Vec<Vec<Token>> {
+    let mut args = Vec::new();
+    let mut current = Vec::new();
+    let mut paren_depth = 0;
+
+    for token in tokens {
+        match token {
+            Token::Symbol('(') => {
+                paren_depth += 1;
+                current.push(token.clone());
+            }
+            Token::Symbol(')') => {
+                paren_depth -= 1;
+                current.push(token.clone());
+            }
+            Token::Symbol(',') if paren_depth == 0 => {
+                args.push(current);
+                current = Vec::new();
+            }
+            _ => current.push(token.clone()),
+        }
+    }
+
+    if !current.is_empty() {
+        args.push(current);
+    }
+
+    args
 }
