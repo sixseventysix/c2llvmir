@@ -1,27 +1,11 @@
-use c2llvmir::{
-    lexer::Lexer,
-    parser::Parsec
-};
-use std::fs;
-use std::io::{self, Read};
-
 fn main() -> io::Result<()>{
-    let filename = "data/a.c";
-    let code = fs::read_to_string(filename)?;
-    
-    let mut lexer = Lexer::new(&code);
-    let tokens = lexer.tokenize();
-    
-    for token in &tokens {
-        println!("{:?}", token);
-    }
+    // file string to TokenStream
+    // TokenStream to Program { constants, functions { name, param_count, params, expressions { subexprs } } }
+    // Program to LLVM IR
+}
 
-    let mut p = Parsec::new(tokens);
-    let program = p.parse_program();
-    println!("{:?}", program);
-
-    // println!("{}", program.to_llvm_ir());
-
-    Ok(())
+#[cfg(test)]
+mod tests {
+    use super::*;
 }
 
