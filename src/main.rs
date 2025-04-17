@@ -1,5 +1,6 @@
 use std::{io, fs};
 use c2llvmir::token::{Token, tokenize};
+use c2llvmir::parsec::{Parsec, Program};
 
 fn main() -> io::Result<()>{
     // file string to TokenStream
@@ -8,9 +9,12 @@ fn main() -> io::Result<()>{
     let path = "data/a.c";
     let content = fs::read_to_string(path)?;
     let tokens = tokenize(&content);
-    for token in tokens {
+    for token in &tokens {
         println!("{:?}", token);
     }
+    let mut parsec = Parsec::new(tokens);
+    let p = parsec.parse_program();
+    println!("{:?}", p);
     Ok(())
 }
 
