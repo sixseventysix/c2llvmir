@@ -1,4 +1,4 @@
-use crate::token::Token;
+use crate::token::{Token, Keyword};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum PrimitiveType {
@@ -24,7 +24,8 @@ pub enum SubExpr {
     Number(i32),
     Char(char),
     Variable(String),
-    Op(BinOp),
+    BinOp(BinOp),
+    UnOp(UnOp),
     Call {
         name: String,
         arg_count: usize,
@@ -47,6 +48,15 @@ pub enum BinOp {
     Sub,
     Mul,
     Div,
+    Eq, Ne,
+    Lt, Le,
+    Gt, Ge
+}
+
+#[derive(Debug, Clone)]
+pub enum UnOp {
+    Not,
+    Neg
 }
 
 #[derive(Debug)]
@@ -107,27 +117,27 @@ impl Parsec {
         Program { functions }
     }
 
-    fn is_primitive_type(s: &str) -> bool {
-        matches!(s, "int" | "float" | "char" | "void")
+    fn is_primitive_type(k: &Keyword) -> bool {
+        matches!(k, Keyword::Int | Keyword::Float | Keyword::Char | Keyword::Void)
     }
     
-    fn keyword_to_primitive(s: &str) -> PrimitiveType {
-        match s {
-            "int" => PrimitiveType::Int,
-            "float" => PrimitiveType::Float,
-            "char" => PrimitiveType::Char,
-            "void" => PrimitiveType::Void,
-            _ => panic!("Unknown primitive type"),
+    fn keyword_to_primitive(k: &Keyword) -> PrimitiveType {
+        match k {
+            Keyword::Int => PrimitiveType::Int,
+            Keyword::Float => PrimitiveType::Float,
+            Keyword::Char => PrimitiveType::Char,
+            Keyword::Void => PrimitiveType::Void,
+            _ => panic!("Invalid primitive type keyword"),
         }
-    }
+    }    
 
     fn parse_function(&mut self) -> Function {
         let return_type = match self.next() {
-            Some(Token::Keyword(kw)) => match kw.as_str() {
-                "int" => Type::Primitive(PrimitiveType::Int),
-                "float" => Type::Primitive(PrimitiveType::Float),
-                "char" => Type::Primitive(PrimitiveType::Char),
-                "void" => Type::Primitive(PrimitiveType::Void),
+            Some(Token::Keyword(kw)) => match kw {
+                Keyword::Int => Type::Primitive(PrimitiveType::Int),
+                Keyword::Float => Type::Primitive(PrimitiveType::Float),
+                Keyword::Char => Type::Primitive(PrimitiveType::Char),
+                Keyword::Void => Type::Primitive(PrimitiveType::Void),
                 _ => panic!("Unknown return type keyword"),
             },
             _ => panic!("Expected return type keyword"),
@@ -139,7 +149,7 @@ impl Parsec {
         };
 
         let params = self.parse_params();
-        assert!(self.expect(&Token::Symbol('{')));
+        assert!(self.expect(&Token::LBrace));
 
         let mut body = Vec::new();
         while let Some(token) = self.peek() {
@@ -148,12 +158,12 @@ impl Parsec {
                 Token::Keyword(_) => {
                     body.push(self.parse_stmt());
                 }
-                Token::Symbol('}') => break,
+                Token::RBrace => break,
                 _ => panic!("Unexpected token in function body: {:?}", token),
             }
         }        
 
-        assert!(self.expect(&Token::Symbol('}')));
+        assert!(self.expect(&Token::RBrace));
 
         Function {
             name,
@@ -164,7 +174,7 @@ impl Parsec {
     }
 
     fn parse_params(&mut self) -> Vec<Parameter> {
-        assert!(self.expect(&Token::Symbol('(')));
+        assert!(self.expect(&Token::LParen));
         let mut params = Vec::new();
     
         while let Some(token) = self.peek() {
@@ -183,18 +193,18 @@ impl Parsec {
                         param_type,
                     });
     
-                    if self.expect(&Token::Symbol(',')) {
+                    if self.expect(&Token::Comma) {
                         continue;
                     } else {
                         break;
                     }
                 }
-                Token::Symbol(')') => break,
+                Token::RParen => break,
                 _ => panic!("Unexpected token in parameter list: {:?}", token),
             }
         }
     
-        assert!(self.expect(&Token::Symbol(')')));
+        assert!(self.expect(&Token::RParen));
         params
     }    
 
@@ -203,10 +213,10 @@ impl Parsec {
             Some(Token::Keyword(kw)) if Self::is_primitive_type(kw) => {
                 self.parse_var_decl()
             }
-            Some(Token::Keyword(k)) if k == "return" => {
+            Some(Token::Keyword(Keyword::Return)) => {
                 self.next(); // consume "return"
                 let expr = self.parse_expr();
-                self.expect(&Token::Symbol(';'));
+                self.expect(&Token::Semicolon);
                 Stmt::Return(expr)
             }
             _ => panic!("Unknown statement"),
@@ -224,13 +234,13 @@ impl Parsec {
             _ => panic!("Expected variable name"),
         };
 
-        let init = if self.expect(&Token::Symbol('=')) {
+        let init = if self.expect(&Token::Eq) {
             Some(self.parse_expr())
         } else {
             None
         };
 
-        self.expect(&Token::Symbol(';'));
+        self.expect(&Token::Semicolon);
 
         Stmt::VarDecl {
             name,
@@ -245,11 +255,11 @@ impl Parsec {
     
         while let Some(token) = self.peek() {
             match token {
-                Token::Symbol('(') => {
+                Token::LParen => {
                     paren_depth += 1;
                     expr_tokens.push(self.next().unwrap().clone());
                 }
-                Token::Symbol(')') => {
+                Token::RParen => {
                     if paren_depth == 0 {
                         break;
                     } else {
@@ -257,7 +267,7 @@ impl Parsec {
                         expr_tokens.push(self.next().unwrap().clone());
                     }
                 }
-                Token::Symbol(';') => {
+                Token::Semicolon => {
                     break;
                 }
                 _ => {
@@ -265,6 +275,7 @@ impl Parsec {
                 }
             }
         }
+        println!("{:?}", expr_tokens);
     
         Expr {
             seq: to_subexpr_postfix(&expr_tokens),
@@ -272,27 +283,51 @@ impl Parsec {
     }      
 }
 
+fn precedence(token: &Token) -> u8 {
+    match token {
+        Token::Star | Token::Slash => 2,
+        Token::Plus | Token::Minus => 1,
+        Token::EqEq | Token::NotEq | Token::Lt | Token::LtEq | Token::Gt | Token::GtEq => 0,
+        _ => 0,
+    }
+}
+
+fn token_to_binop(token: &Token) -> BinOp {
+    match token {
+        Token::Plus => BinOp::Add,
+        Token::Minus => BinOp::Sub,
+        Token::Star => BinOp::Mul,
+        Token::Slash => BinOp::Div,
+        Token::EqEq => BinOp::Eq,
+        Token::NotEq => BinOp::Ne,
+        Token::Lt => BinOp::Lt,
+        Token::LtEq => BinOp::Le,
+        Token::Gt => BinOp::Gt,
+        Token::GtEq => BinOp::Ge,
+        _ => panic!("Unknown binary operator: {:?}", token),
+    }
+}
+
+fn stack_expects_binop(op: &Token) -> Option<BinOp> {
+    match op {
+        Token::Plus => Some(BinOp::Add),
+        Token::Minus => Some(BinOp::Sub),
+        Token::Star => Some(BinOp::Mul),
+        Token::Slash => Some(BinOp::Div),
+        Token::EqEq => Some(BinOp::Eq),
+        Token::NotEq => Some(BinOp::Ne),
+        Token::Lt => Some(BinOp::Lt),
+        Token::LtEq => Some(BinOp::Le),
+        Token::Gt => Some(BinOp::Gt),
+        Token::GtEq => Some(BinOp::Ge),
+        _ => None,
+    }
+}
+
+
 fn to_subexpr_postfix(tokens: &[Token]) -> Vec<SubExpr> {
     let mut output = Vec::new();
     let mut op_stack = Vec::new();
-
-    fn precedence(op: &Token) -> u8 {
-        match op {
-            Token::Symbol('+') | Token::Symbol('-') => 1,
-            Token::Symbol('*') | Token::Symbol('/') => 2,
-            _ => 0,
-        }
-    }
-
-    fn token_to_binop(token: &Token) -> BinOp {
-        match token {
-            Token::Symbol('+') => BinOp::Add,
-            Token::Symbol('-') => BinOp::Sub,
-            Token::Symbol('*') => BinOp::Mul,
-            Token::Symbol('/') => BinOp::Div,
-            _ => panic!("Unknown operator"),
-        }
-    }
 
     let mut i = 0;
     while i < tokens.len() {
@@ -301,20 +336,20 @@ fn to_subexpr_postfix(tokens: &[Token]) -> Vec<SubExpr> {
                 output.push(SubExpr::Number(n.parse().unwrap()));
                 i += 1;
             }
+
             Token::CharLiteral(c) => {
                 output.push(SubExpr::Char(*c));
                 i += 1;
             }
+
             Token::Identifier(name) => {
-                // Check for function call
-                if i + 1 < tokens.len() && tokens[i + 1] == Token::Symbol('(') {
-                    // Find matching ')'
+                if i + 1 < tokens.len() && tokens[i + 1] == Token::LParen {
                     let mut j = i + 2;
                     let mut paren_depth = 1;
                     while j < tokens.len() {
                         match &tokens[j] {
-                            Token::Symbol('(') => paren_depth += 1,
-                            Token::Symbol(')') => {
+                            Token::LParen => paren_depth += 1,
+                            Token::RParen => {
                                 paren_depth -= 1;
                                 if paren_depth == 0 {
                                     break;
@@ -328,7 +363,7 @@ fn to_subexpr_postfix(tokens: &[Token]) -> Vec<SubExpr> {
                     let args_slice = &tokens[i + 2..j];
                     let args_split = split_args(args_slice);
                     for arg_tokens in &args_split {
-                        output.extend(to_subexpr_postfix(&arg_tokens));
+                        output.extend(to_subexpr_postfix(arg_tokens));
                     }
 
                     output.push(SubExpr::Call {
@@ -336,45 +371,98 @@ fn to_subexpr_postfix(tokens: &[Token]) -> Vec<SubExpr> {
                         arg_count: args_split.len(),
                     });
 
-                    i = j + 1; // skip past ')'
+                    i = j + 1;
                 } else {
                     output.push(SubExpr::Variable(name.clone()));
                     i += 1;
                 }
             }
-            Token::Symbol('(') => {
+
+            Token::Not => {
+                i += 1;
+                let mut rhs = to_subexpr_postfix(&tokens[i..]);
+                output.append(&mut rhs);
+                output.push(SubExpr::UnOp(UnOp::Not));
+                break;
+            }
+
+            Token::Minus => {
+                let is_unary = if i == 0 {
+                    true
+                } else {
+                    matches!(
+                        tokens.get(i - 1),
+                        Some(
+                            Token::Plus | Token::Minus | Token::Star | Token::Slash |
+                            Token::Eq | Token::EqEq | Token::NotEq |
+                            Token::Lt | Token::LtEq | Token::Gt | Token::GtEq |
+                            Token::LParen | Token::Comma
+                        )
+                    )
+                };
+
+                if is_unary {
+                    i += 1;
+                    let mut rhs = to_subexpr_postfix(&tokens[i..]);
+                    output.append(&mut rhs);
+                    output.push(SubExpr::UnOp(UnOp::Neg));
+                    break;
+                } else {
+                    while let Some(top) = op_stack.last() {
+                        if precedence(top) >= precedence(&tokens[i]) {
+                            println!("1");
+                            output.push(SubExpr::BinOp(token_to_binop(&op_stack.pop().unwrap())));
+                        } else {
+                            break;
+                        }
+                    }
+                    op_stack.push(tokens[i].clone());
+                    i += 1;
+                }
+            }
+
+            Token::LParen => {
                 op_stack.push(tokens[i].clone());
                 i += 1;
             }
-            Token::Symbol(')') => {
+
+            Token::RParen => {
                 while let Some(top) = op_stack.pop() {
-                    if top == Token::Symbol('(') {
+                    if top == Token::LParen {
                         break;
                     }
-                    output.push(SubExpr::Op(token_to_binop(&top)));
+                    println!("2");
+                    output.push(SubExpr::BinOp(token_to_binop(&top)));
                 }
                 i += 1;
             }
-            Token::Symbol(op @ ('+' | '-' | '*' | '/')) => {
+
+            Token::Plus | Token::Star | Token::Slash |
+            Token::EqEq | Token::NotEq | Token::Lt | Token::LtEq | Token::Gt | Token::GtEq => {
                 while let Some(top) = op_stack.last() {
-                    if matches!(top, Token::Symbol('+') | Token::Symbol('-') | Token::Symbol('*') | Token::Symbol('/'))
-                        && precedence(top) >= precedence(&tokens[i])
-                    {
-                        output.push(SubExpr::Op(token_to_binop(&op_stack.pop().unwrap())));
+                    if precedence(top) >= precedence(&tokens[i]) {
+                        let op = op_stack.pop().unwrap();
+                        if let Some(binop) = stack_expects_binop(&op) {
+                            output.push(SubExpr::BinOp(binop));
+                        }
                     } else {
                         break;
                     }
                 }
+                
                 op_stack.push(tokens[i].clone());
                 i += 1;
             }
+
             token => panic!("Invalid token in expression: {:?}", token),
         }
     }
 
     while let Some(op) = op_stack.pop() {
-        output.push(SubExpr::Op(token_to_binop(&op)));
-    }
+        if let Some(binop) = stack_expects_binop(&op) {
+            output.push(SubExpr::BinOp(binop));
+        }
+    }    
 
     output
 }
@@ -386,15 +474,15 @@ fn split_args(tokens: &[Token]) -> Vec<Vec<Token>> {
 
     for token in tokens {
         match token {
-            Token::Symbol('(') => {
+            Token::LParen => {
                 paren_depth += 1;
                 current.push(token.clone());
             }
-            Token::Symbol(')') => {
+            Token::RParen => {
                 paren_depth -= 1;
                 current.push(token.clone());
             }
-            Token::Symbol(',') if paren_depth == 0 => {
+            Token::Comma if paren_depth == 0 => {
                 args.push(current);
                 current = Vec::new();
             }

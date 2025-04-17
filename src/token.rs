@@ -1,14 +1,29 @@
 #[derive(Debug, Clone, PartialEq)]
 pub enum Token {
     Identifier(String),
-    Keyword(String),
-    Symbol(char),
+    Keyword(Keyword),
     Number(String),
     StringLiteral(String),
     CharLiteral(char),
+
+    LParen, RParen,
+    LBrace, RBrace,
+    Semicolon, Comma,
+
+    Plus, Minus, Star, Slash,
+    Eq, EqEq,
+    Not, NotEq,
+    Lt, LtEq,
+    Gt, GtEq,
+
     Whitespace,
     Newline,
     Unknown(char),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum Keyword {
+    Int, Float, Char, Return, Void, If, Else,
 }
 
 pub fn tokenize(input: &str) -> Vec<Token> {
@@ -49,9 +64,16 @@ fn read_identifier_or_keyword<I: Iterator<Item = char>>(chars: &mut std::iter::P
     }
 
     match ident.as_str() {
-        "int" | "float" | "char" | "return" | "void" | "if" | "else" => Token::Keyword(ident),
+        "int" => Token::Keyword(Keyword::Int),
+        "float" => Token::Keyword(Keyword::Float),
+        "char" => Token::Keyword(Keyword::Char),
+        "return" => Token::Keyword(Keyword::Return),
+        "void" => Token::Keyword(Keyword::Void),
+        "if" => Token::Keyword(Keyword::If),
+        "else" => Token::Keyword(Keyword::Else),
         _ => Token::Identifier(ident),
     }
+    
 }
 
 fn read_number<I: Iterator<Item = char>>(chars: &mut std::iter::Peekable<I>) -> Token {
@@ -108,12 +130,55 @@ fn read_char_literal<I: Iterator<Item = char>>(chars: &mut std::iter::Peekable<I
 }
 
 fn is_symbol(c: char) -> bool {
-    matches!(c, '{' | '}' | '(' | ')' | ';' | ',' | '=' | '+' | '-' | '*' | '/')
+    matches!(c, '{' | '}' | '(' | ')' | ';' | ',' | '=' | '<' | '>' | '+' | '-' | '*' | '/')
 }
 
 fn read_symbol<I: Iterator<Item = char>>(chars: &mut std::iter::Peekable<I>) -> Token {
-    let c = chars.next().unwrap();
-    Token::Symbol(c)
+    match chars.next().unwrap() {
+        '(' => Token::LParen,
+        ')' => Token::RParen,
+        '{' => Token::LBrace,
+        '}' => Token::RBrace,
+        ';' => Token::Semicolon,
+        ',' => Token::Comma,
+        '+' => Token::Plus,
+        '-' => Token::Minus,
+        '*' => Token::Star,
+        '/' => Token::Slash,
+        '=' => {
+            if chars.peek() == Some(&'=') {
+                chars.next();
+                Token::EqEq
+            } else {
+                Token::Eq
+            }
+        }
+        '!' => {
+            if chars.peek() == Some(&'=') {
+                chars.next();
+                Token::NotEq
+            } else {
+                Token::Not
+            }
+        }
+        '<' => {
+            if chars.peek() == Some(&'=') {
+                chars.next();
+                Token::LtEq
+            } else {
+                Token::Lt
+            }
+        }
+        '>' => {
+            if chars.peek() == Some(&'=') {
+                chars.next();
+                Token::GtEq
+            } else {
+                Token::Gt
+            }
+        }
+        other => Token::Unknown(other),
+    }
 }
 
 fn read_unknown<I: Iterator<Item = char>>(chars: &mut std::iter::Peekable<I>) -> Token {
