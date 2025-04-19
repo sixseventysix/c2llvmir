@@ -1,5 +1,5 @@
 use std::{io, fs};
-use c2llvmir::token::{Token, tokenize};
+use c2llvmir::token::tokenize;
 use c2llvmir::parsec::{Parsec, Program};
 
 fn main() -> io::Result<()>{

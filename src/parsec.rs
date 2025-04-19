@@ -39,7 +39,12 @@ pub enum Stmt {
         name: String,
         var_type: Type,
         init: Option<Expr>
-    }
+    },
+    Assign {
+        target: String,
+        value: Expr,
+    },
+    ExprStmt(Expr),
 }
 
 #[derive(Debug, Clone)]
@@ -155,7 +160,7 @@ impl Parsec {
         while let Some(token) = self.peek() {
             println!("parsing: {:?}", token);
             match token {
-                Token::Keyword(_) => {
+                Token::Keyword(_) | Token::Identifier(_) => {
                     body.push(self.parse_stmt());
                 }
                 Token::RBrace => break,
@@ -219,10 +224,42 @@ impl Parsec {
                 self.expect(&Token::Semicolon);
                 Stmt::Return(expr)
             }
+            Some(Token::Identifier(_)) => {
+                self.parse_assignment_or_expr_stmt()
+            }
             _ => panic!("Unknown statement"),
         }
     }
 
+    fn parse_assignment_or_expr_stmt(&mut self) -> Stmt {
+        let name = match self.next() {
+            Some(Token::Identifier(id)) => id.clone(),
+            _ => panic!("Expected identifier"),
+        };
+    
+        match self.peek() {
+            Some(Token::Eq) => {
+                self.next(); // consume '='
+                let value = self.parse_expr();
+                self.expect(&Token::Semicolon);
+                Stmt::Assign { target: name, value }
+            }
+            Some(Token::LParen) => {
+                let mut tokens = vec![Token::Identifier(name)];
+                while let Some(tok) = self.peek() {
+                    if *tok == Token::Semicolon {
+                        break;
+                    }
+                    tokens.push(self.next().unwrap().clone());
+                }
+                self.expect(&Token::Semicolon);
+                let expr = Expr { seq: to_subexpr_postfix(&tokens) };
+                Stmt::ExprStmt(expr)
+            }
+            _ => panic!("Expected '=' for assignment or '(' for function call after identifier"),
+        }
+    }
+    
     fn parse_var_decl(&mut self) -> Stmt {
         let var_type = match self.next() {
             Some(Token::Keyword(kw)) => Type::Primitive(Self::keyword_to_primitive(kw)),
@@ -410,7 +447,6 @@ fn to_subexpr_postfix(tokens: &[Token]) -> Vec<SubExpr> {
                 } else {
                     while let Some(top) = op_stack.last() {
                         if precedence(top) >= precedence(&tokens[i]) {
-                            println!("1");
                             output.push(SubExpr::BinOp(token_to_binop(&op_stack.pop().unwrap())));
                         } else {
                             break;
@@ -431,7 +467,6 @@ fn to_subexpr_postfix(tokens: &[Token]) -> Vec<SubExpr> {
                     if top == Token::LParen {
                         break;
                     }
-                    println!("2");
                     output.push(SubExpr::BinOp(token_to_binop(&top)));
                 }
                 i += 1;

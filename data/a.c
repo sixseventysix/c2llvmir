@@ -4,7 +4,8 @@ int add(int a, int b) {
 
 int main() {
     int x = 2+(-5);
-    char c = 'a';
+    x = 5;
     int y = add(x, 3);
+    add(x,3);
     return y;
 }
